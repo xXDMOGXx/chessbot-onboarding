@@ -17,19 +17,20 @@ export let gameManager: GameManager | null = null;
 /**
  * An endpoint used to establish a websocket connection with the server.
  *
- * The websocket is used to stream moves to and from the client.
+ * The websocket is used to stream messages to and from the client.
  */
 export const websocketHandler: WebsocketRequestHandler = (ws, req) => {
+    const sessionId = req.cookies.id;  
     ws.on("close", () => {
-        socketManager.handleSocketClosed(req.cookies.id);
+        socketManager.handleSocketClosed(sessionId);
     });
 
     ws.on("message", (data) => {
         const message = parseMessage(data.toString());
-        console.log("Received message: " + message.toJson());
+        console.log("Received message from socket ID", sessionId + ":", message.toJson());
 
         if (message instanceof RegisterWebsocketMessage) {
-            socketManager.registerSocket(req.cookies.id, ws);
+            socketManager.registerSocket(sessionId, ws);
         } else if (
             message instanceof GameInterruptedMessage ||
             message instanceof PlacementMessage
@@ -43,10 +44,6 @@ export const apiRouter = Router();
 
 apiRouter.get("/client-information", (req, res) => {
     const clientType = clientManager.getClientType(req.cookies.id);
-    /**
-     * Note the client currently redirects to home from the game over screen
-     * So removing the isGameEnded check here results in an infinite loop
-     */
     const isGameActive = gameManager !== null && !gameManager.isGameEnded();
     return res.send({
         clientType,
@@ -71,10 +68,11 @@ apiRouter.get("/board-state", (_, res) => {
     return res.status(200).send(gameManager.getBoardState());
 });
 
+// A client will post this request whenever they are ready to start a game
 apiRouter.post("/start-game", (req, res) => {
     const hostPiece = req.query.hostPiece as PieceType;
     gameManager = new GameManager(
-        new GameEngine(),
+        new GameEngine(hostPiece),
         socketManager,
         hostPiece,
         clientManager,
